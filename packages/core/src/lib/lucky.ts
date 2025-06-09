@@ -1,6 +1,5 @@
-import '../utils/polyfill'
-import { has, isExpectType, throttle } from '../utils/index'
-import { name, version } from '../../package.json'
+import { has, isExpectType } from '../utils/index'
+import { version } from '../../package.json'
 import { ConfigType, UserConfigType, ImgItemType, ImgType, Tuple } from '../types/index'
 import { defineReactive } from '../observer'
 import Watcher, { WatchOptType } from '../observer/watcher'
@@ -38,20 +37,10 @@ export default class Lucky {
     this.config = config as ConfigType
     this.data = data
     // 开始初始化
-    if (!config.flag) config.flag = 'WEB'
-    if (config.el) config.divElement = document.querySelector(config.el) as HTMLDivElement
-    // 如果存在父盒子, 就创建canvas标签
-    if (config.divElement) {
-      // 无论盒子内有没有canvas都执行覆盖逻辑
-      config.canvasElement = document.createElement('canvas')
-      config.divElement.appendChild(config.canvasElement)
-    }
+    config.flag = 'MP-WX'
     // 获取 canvas 上下文
     if (config.canvasElement) {
       config.ctx = config.canvasElement.getContext('2d')!
-      // 添加版本信息到标签上, 方便定位版本问题
-      config.canvasElement.setAttribute('package', `${name}@${version}`)
-      config.canvasElement.addEventListener('click', e => this.handleClick(e))
     }
     this.ctx = config.ctx as CanvasRenderingContext2D
     // 初始化 window 方法
@@ -60,16 +49,6 @@ export default class Lucky {
     if (!this.config.ctx) {
       console.error('无法获取到 CanvasContext2D')
     }
-    // 监听 window 触发 resize 时重置
-    if (window && typeof window.addEventListener === 'function') {
-      window.addEventListener('resize', throttle(() => this.resize(), 300))
-    }
-    // 监听异步设置 html 的 fontSize 并重新绘制
-    if (window && typeof window.MutationObserver === 'function') {
-      new window.MutationObserver(() => {
-        this.resize()
-      }).observe(document.documentElement, { attributes: true })
-    }
   }
 
   /**
@@ -77,8 +56,6 @@ export default class Lucky {
    */
   protected resize(): void {
     this.config.beforeResize?.()
-    // 先初始化 fontSize 以防后面有 rem 单位
-    this.setHTMLFontSize()
     // 拿到 config 即可设置 dpr
     this.setDpr()
     // 初始化宽高
@@ -103,14 +80,6 @@ export default class Lucky {
    */
   protected handleClick (e: MouseEvent): void {}
 
-  /**
-   * 根标签的字体大小
-   */
-  protected setHTMLFontSize (): void {
-    if (!window) return
-    this.htmlFontSize = +window.getComputedStyle(document.documentElement).fontSize.slice(0, -2)
-  }
-
   // 清空画布
   public clearCanvas (): void {
     const [width, height] = [this.boxWidth, this.boxHeight]
@@ -126,7 +95,7 @@ export default class Lucky {
     if (config.dpr) {
       // 优先使用 config 传入的 dpr
     } else if (window) {
-      window['dpr'] = config.dpr = window.devicePixelRatio || 1
+      config.dpr = window.devicePixelRatio || 1
     } else if (!config.dpr) {
       console.error(config, '未传入 dpr 可能会导致绘制异常')
     }
@@ -144,8 +113,8 @@ export default class Lucky {
       boxHeight = config.divElement.offsetHeight
     }
     // 先从 data 里取宽高, 如果 config 上面没有, 就从 style 上面取
-    this.boxWidth = this.getLength(data.width || config['width']) || boxWidth
-    this.boxHeight = this.getLength(data.height || config['height']) || boxHeight
+    this.boxWidth = this.getLength(data.width) || boxWidth
+    this.boxHeight = this.getLength(data.height) || boxHeight
     // 重新把宽高赋给盒子
     if (config.divElement) {
       config.divElement.style.overflow = 'hidden'
@@ -164,10 +133,6 @@ export default class Lucky {
     if (!canvasElement) return
     canvasElement.width = width
     canvasElement.height = height
-    canvasElement.style.width = `${width}px`
-    canvasElement.style.height = `${height}px`
-    canvasElement.style['transform-origin'] = 'left top'
-    canvasElement.style.transform = `scale(${1 / dpr})`
     ctx.scale(dpr, dpr)
   }
 
@@ -178,8 +143,6 @@ export default class Lucky {
     const { config } = this
     if (window) {
       this.rAF = window.requestAnimationFrame ||
-        window['webkitRequestAnimationFrame'] ||
-        window['mozRequestAnimationFrame'] ||
         function (callback: Function) {
           window.setTimeout(callback, 1000 / 60)
         }
@@ -218,18 +181,9 @@ export default class Lucky {
   ): Promise<ImgType> {
     return new Promise((resolve, reject) => {
       if (!src) reject(`=> '${info.src}' 不能为空或不合法`)
-      if (this.config.flag === 'WEB') {
-        let imgObj = new Image()
-        imgObj['crossorigin'] = 'anonymous'
-        imgObj.onload = () => resolve(imgObj)
-        imgObj.onerror = () => reject(`=> '${info.src}' 图片加载失败`)
-        imgObj.src = src
-      } else {
-        // 其余平台向外暴露, 交给外部自行处理
-        info[resolveName] = resolve
-        info['$reject'] = reject
-        return
-      }
+      info[resolveName] = resolve
+      info['$reject'] = reject
+      return
     })
   }
 
@@ -243,19 +197,8 @@ export default class Lucky {
     imgObj: ImgType,
     ...rectInfo: [...Tuple<number, 4>, ...Partial<Tuple<number, 4>>]
   ): void {
-    let drawImg
-    const { flag, dpr } = this.config
-    if (['WEB', 'MP-WX'].includes(flag)) {
-      // 浏览器和新版小程序中直接绘制即可
-      drawImg = imgObj
-    } else if (['UNI-H5', 'UNI-MP', 'TARO-H5', 'TARO-MP'].includes(flag)) {
-      // 旧版本的小程序需要绘制 path, 这里特殊处理一下
-      type OldImageType = ImgType & { path: CanvasImageSource }
-      drawImg = (imgObj as OldImageType).path
-    } else {
-      // 如果传入了未知的标识
-      return console.error('意料之外的 flag, 该平台尚未兼容!')
-    }
+    let drawImg = imgObj;
+    const { dpr } = this.config
     const miniProgramOffCtx = (drawImg['canvas'] || drawImg).getContext?.('2d')
     if (miniProgramOffCtx && !this.isWeb()) {
       rectInfo = rectInfo.map(val => val! * dpr) as Tuple<number, 8>
@@ -324,16 +267,17 @@ export default class Lucky {
   protected changeUnits (value: string, denominator = 1): number {
     const { config } = this
     return Number(value.replace(/^([-]*[0-9.]*)([a-z%]*)$/, (val, num, unit) => {
-      const handleCssUnit = {
+      const handleCssUnit: Record<string, (n: number) => number> = {
         '%': (n: number) => n * (denominator / 100),
         'px': (n: number) => n * 1,
         'rem': (n: number) => n * this.htmlFontSize,
         'vw': (n: number) => n / 100 * window.innerWidth,
-      }[unit]
-      if (handleCssUnit) return handleCssUnit(num)
+      }
+      const unitHandler = handleCssUnit[unit]
+      if (unitHandler) return unitHandler(Number(num))
       // 如果找不到默认单位, 就交给外面处理
-      const otherHandleCssUnit = config.handleCssUnit || config['unitFunc']
-      return otherHandleCssUnit ? otherHandleCssUnit(num, unit) : num
+      const otherHandleCssUnit = config.handleCssUnit || config['unitFunc'];
+      return otherHandleCssUnit ? otherHandleCssUnit(Number(num), unit) : Number(num)
     }))
   }
 
@@ -356,29 +300,6 @@ export default class Lucky {
    */
   protected getOffsetX (width: number, maxWidth: number = 0): number {
     return (maxWidth - width) / 2
-  }
-
-  protected getOffscreenCanvas (width: number, height: number): {
-    _offscreenCanvas: HTMLCanvasElement,
-    _ctx: CanvasRenderingContext2D
-  } | void {
-    if (!has(this, '_offscreenCanvas')) {
-      if (window && window.document && this.config.flag === 'WEB') {
-        this['_offscreenCanvas'] = document.createElement('canvas')
-      } else {
-        this['_offscreenCanvas'] = this.config['offscreenCanvas']
-      }
-      if (!this['_offscreenCanvas']) return console.error('离屏 Canvas 无法渲染!')
-    }
-    const dpr = this.config.dpr
-    const _offscreenCanvas = this['_offscreenCanvas'] as HTMLCanvasElement
-    _offscreenCanvas.width = (width || 300) * dpr
-    _offscreenCanvas.height = (height || 150) * dpr
-    const _ctx = _offscreenCanvas.getContext('2d')!
-    _ctx.clearRect(0, 0, width, height)
-    _ctx.scale(dpr, dpr)
-    _ctx['dpr'] = dpr
-    return { _offscreenCanvas, _ctx }
   }
 
   /**

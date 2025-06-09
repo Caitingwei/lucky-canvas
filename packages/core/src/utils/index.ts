@@ -64,49 +64,6 @@ export const hasBackground = (color: string | undefined | null): boolean => {
 }
 
 /**
- * 通过padding计算
- * @return { object } block 边框信息
- */
-export const computePadding = (
-  block: { padding?: string },
-  getLength: Function
-): [number, number, number, number] => {
-  let padding = block.padding?.split(' ').map(n => getLength(n)) || [0],
-    paddingTop = 0,
-    paddingBottom = 0,
-    paddingLeft = 0,
-    paddingRight = 0
-  switch (padding.length) {
-    case 1:
-      paddingTop = paddingBottom = paddingLeft = paddingRight = padding[0]
-      break
-    case 2:
-      paddingTop = paddingBottom = padding[0]
-      paddingLeft = paddingRight = padding[1]
-      break
-    case 3:
-      paddingTop = padding[0]
-      paddingLeft = paddingRight = padding[1]
-      paddingBottom = padding[2]
-      break
-    default:
-      paddingTop = padding[0]
-      paddingBottom = padding[1]
-      paddingLeft = padding[2]
-      paddingRight = padding[3]
-  }
-  // 检查是否单独传入值, 并且不是0
-  const res = { paddingTop, paddingBottom, paddingLeft, paddingRight }
-  for (let key in res) {
-    // 是否含有这个属性, 并且是数字或字符串
-    res[key] = has(block, key) && isExpectType(block[key], 'string', 'number')
-      ? getLength(block[key])
-      : res[key]
-  }
-  return [paddingTop, paddingBottom, paddingLeft, paddingRight]
-}
-
-/**
  * 节流函数
  * @param fn 将要处理的函数
  * @param wait 时间, 单位为毫秒
@@ -185,17 +142,4 @@ export const splitText = (
   if (str) lines.push(str)
   if (!lines.length) lines.push(text)
   return lines
-}
-
-// 获取一个重新排序的数组
-export const getSortedArrayByIndex = <T>(arr: T[], order: number[]): T[] => {
-  const map: { [key: number]: T } = {}, res = []
-  for (let i = 0; i < arr.length; i++) {
-    map[i] = arr[i]
-  }
-  for (let i = 0; i < order.length; i++) {
-    const curr = map[order[i]]
-    if (curr) (res[i] = curr)
-  }
-  return res
 }
