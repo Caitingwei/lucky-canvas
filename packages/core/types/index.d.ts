@@ -91,12 +91,11 @@ declare class Lucky {
      * @param e 事件参数
      */
     protected handleClick(e: MouseEvent): void;
-    clearCanvas(): void;
     /**
-     * 设备像素比
-     * window 环境下自动获取, 其余环境手动传入
+     * 根标签的字体大小
      */
-    protected setDpr(): void;
+    protected setHTMLFontSize(): void;
+    clearCanvas(): void;
     /**
      * 重置盒子和canvas的宽高
      */
@@ -109,7 +108,6 @@ declare class Lucky {
      * 从 window 对象上获取一些方法
      */
     private initWindowFunction;
-    isWeb(): boolean;
     /**
      * 异步加载图片并返回图片的几何信息
      * @param src 图片路径

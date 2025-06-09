@@ -1,5 +1,5 @@
-import { has, isExpectType } from '../utils/index'
-import { version } from '../../package.json'
+import { has, isExpectType, throttle } from '../utils/index'
+import { name, version } from '../../package.json'
 import { ConfigType, UserConfigType, ImgItemType, ImgType, Tuple } from '../types/index'
 import { defineReactive } from '../observer'
 import Watcher, { WatchOptType } from '../observer/watcher'
@@ -38,9 +38,12 @@ export default class Lucky {
     this.data = data
     // 开始初始化
     config.flag = 'MP-WX'
+    // 如果存在父盒子, 就创建canvas标签
     // 获取 canvas 上下文
     if (config.canvasElement) {
       config.ctx = config.canvasElement.getContext('2d')!
+      // 添加版本信息到标签上, 方便定位版本问题
+      config.canvasElement.setAttribute('package', `${name}@${version}`)
     }
     this.ctx = config.ctx as CanvasRenderingContext2D
     // 初始化 window 方法
@@ -56,8 +59,8 @@ export default class Lucky {
    */
   protected resize(): void {
     this.config.beforeResize?.()
-    // 拿到 config 即可设置 dpr
-    this.setDpr()
+    // 先初始化 fontSize 以防后面有 rem 单位
+    this.setHTMLFontSize()
     // 初始化宽高
     this.resetWidthAndHeight()
     // 根据 dpr 来缩放 canvas
@@ -80,27 +83,19 @@ export default class Lucky {
    */
   protected handleClick (e: MouseEvent): void {}
 
+  /**
+   * 根标签的字体大小
+   */
+  protected setHTMLFontSize (): void {
+    if (!window) return
+    this.htmlFontSize = +window.getComputedStyle(document.documentElement).fontSize.slice(0, -2)
+  }
+
   // 清空画布
   public clearCanvas (): void {
     const [width, height] = [this.boxWidth, this.boxHeight]
     this.ctx.clearRect(-width, -height, width * 2, height * 2)
   }
-
-  /**
-   * 设备像素比
-   * window 环境下自动获取, 其余环境手动传入
-   */
-  protected setDpr (): void {
-    const { config } = this
-    if (config.dpr) {
-      // 优先使用 config 传入的 dpr
-    } else if (window) {
-      config.dpr = window.devicePixelRatio || 1
-    } else if (!config.dpr) {
-      console.error(config, '未传入 dpr 可能会导致绘制异常')
-    }
-  }
-
   /**
    * 重置盒子和canvas的宽高
    */
@@ -113,8 +108,8 @@ export default class Lucky {
       boxHeight = config.divElement.offsetHeight
     }
     // 先从 data 里取宽高, 如果 config 上面没有, 就从 style 上面取
-    this.boxWidth = this.getLength(data.width) || boxWidth
-    this.boxHeight = this.getLength(data.height) || boxHeight
+    this.boxWidth = this.getLength(data.width || config['width']) || boxWidth
+    this.boxHeight = this.getLength(data.height || config['height']) || boxHeight
     // 重新把宽高赋给盒子
     if (config.divElement) {
       config.divElement.style.overflow = 'hidden'
@@ -133,6 +128,10 @@ export default class Lucky {
     if (!canvasElement) return
     canvasElement.width = width
     canvasElement.height = height
+    canvasElement.style.width = `${width}px`
+    canvasElement.style.height = `${height}px`
+    canvasElement.style['transform-origin'] = 'left top'
+    canvasElement.style.transform = `scale(${1 / dpr})`
     ctx.scale(dpr, dpr)
   }
 
@@ -164,11 +163,6 @@ export default class Lucky {
       this.rAF = (callback: Function): number => setTimeout(callback, 16.7)
     }
   }
-
-  public isWeb () {
-    return ['WEB', 'UNI-H5', 'TARO-H5'].includes(this.config.flag)
-  }
-
   /**
    * 异步加载图片并返回图片的几何信息
    * @param src 图片路径
@@ -181,6 +175,7 @@ export default class Lucky {
   ): Promise<ImgType> {
     return new Promise((resolve, reject) => {
       if (!src) reject(`=> '${info.src}' 不能为空或不合法`)
+      // 其余平台向外暴露, 交给外部自行处理
       info[resolveName] = resolve
       info['$reject'] = reject
       return
@@ -198,9 +193,9 @@ export default class Lucky {
     ...rectInfo: [...Tuple<number, 4>, ...Partial<Tuple<number, 4>>]
   ): void {
     let drawImg = imgObj;
-    const { dpr } = this.config
+    const { flag, dpr } = this.config
     const miniProgramOffCtx = (drawImg['canvas'] || drawImg).getContext?.('2d')
-    if (miniProgramOffCtx && !this.isWeb()) {
+    if (miniProgramOffCtx) {
       rectInfo = rectInfo.map(val => val! * dpr) as Tuple<number, 8>
       const temp = miniProgramOffCtx.getImageData(...rectInfo.slice(0, 4))
       ctx.putImageData(temp, ...(rectInfo.slice(4, 6) as Tuple<number, 2>))
@@ -276,7 +271,7 @@ export default class Lucky {
       const unitHandler = handleCssUnit[unit]
       if (unitHandler) return unitHandler(Number(num))
       // 如果找不到默认单位, 就交给外面处理
-      const otherHandleCssUnit = config.handleCssUnit || config['unitFunc'];
+      const otherHandleCssUnit = config.handleCssUnit || config['unitFunc']
       return otherHandleCssUnit ? otherHandleCssUnit(Number(num), unit) : Number(num)
     }))
   }
